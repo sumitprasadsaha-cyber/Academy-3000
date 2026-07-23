@@ -469,8 +469,11 @@ export default function SubjectNotes({
                           <BookOpen className="w-5 h-5" />
                         </div>
                         <div className="flex flex-col min-w-0">
-                          <h3 className="font-extrabold text-slate-850 dark:text-slate-100 text-sm break-words group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                            Chapter {group.chapterNo} – {group.chapterName}
+                          <h3 className="flex items-start gap-1.5 font-extrabold text-slate-850 dark:text-slate-100 text-sm min-w-0">
+                            <span className="shrink-0">Chapter {group.chapterNo} –</span>
+                            <span className="flex-1 break-words group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                              {group.chapterName}
+                            </span>
                           </h3>
                           <div className="flex flex-wrap items-center gap-2 mt-0.5">
                             <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 break-words">
@@ -556,8 +559,11 @@ export default function SubjectNotes({
                         <div className="p-2 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-xl shrink-0">
                           <BookOpen className="w-4 h-4" />
                         </div>
-                        <h3 className="font-extrabold text-slate-850 dark:text-slate-100 text-sm break-words group-hover/hdr:text-blue-600 dark:group-hover/hdr:text-blue-400 transition-colors">
-                          Chapter {group.chapterNo} – {group.chapterName}
+                        <h3 className="flex items-start gap-1.5 font-extrabold text-slate-850 dark:text-slate-100 text-sm min-w-0">
+                          <span className="shrink-0">Chapter {group.chapterNo} –</span>
+                          <span className="flex-1 break-words group-hover/hdr:text-blue-600 dark:group-hover/hdr:text-blue-400 transition-colors">
+                            {group.chapterName}
+                          </span>
                         </h3>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">

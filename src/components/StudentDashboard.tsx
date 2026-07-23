@@ -1844,8 +1844,11 @@ export function StudentMyTab({
                                 <BookOpen className="w-5 h-5" />
                               </div>
                               <div className="min-w-0">
-                                <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 break-words group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                                  Chapter {group.chapterNo} – {group.chapterName}
+                                <h4 className="flex items-start gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 min-w-0">
+                                  <span className="shrink-0">Chapter {group.chapterNo} –</span>
+                                  <span className="flex-1 break-words group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                    {group.chapterName}
+                                  </span>
                                 </h4>
                                 <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[9px] font-semibold text-slate-400">
                                   {note.pdfFileName && (
@@ -1878,7 +1881,7 @@ export function StudentMyTab({
                                 className="p-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all cursor-pointer active:scale-95"
                                 title="Chapter Progress"
                               >
-                                <Sparkles className="w-4 h-4" />
+                                <TrendingUp className="w-4 h-4" />
                               </button>
 
                               {isAdmin && onDeleteNote && selectedSubject && (
@@ -1931,8 +1934,11 @@ export function StudentMyTab({
                             <div className="p-2 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl shrink-0">
                               <BookOpen className="w-4 h-4" />
                             </div>
-                            <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 break-words group-hover/hdr:text-blue-600 dark:group-hover/hdr:text-blue-400 transition-colors">
-                              Chapter {group.chapterNo} – {group.chapterName}
+                            <h4 className="flex items-start gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 min-w-0">
+                              <span className="shrink-0">Chapter {group.chapterNo} –</span>
+                              <span className="flex-1 break-words group-hover/hdr:text-blue-600 dark:group-hover/hdr:text-blue-400 transition-colors">
+                                {group.chapterName}
+                              </span>
                             </h4>
                           </div>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg shrink-0">
@@ -1982,7 +1988,7 @@ export function StudentMyTab({
                                       className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all cursor-pointer active:scale-95"
                                       title="Chapter Progress"
                                     >
-                                      <Sparkles className="w-3.5 h-3.5" />
+                                      <TrendingUp className="w-3.5 h-3.5" />
                                     </button>
 
                                     {isAdmin && onDeleteNote && selectedSubject && (
