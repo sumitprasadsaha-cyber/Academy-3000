@@ -1,12 +1,32 @@
+export interface ClassNote {
+  id: string;
+  classGrade: string; // e.g. "Class 6", "Class 7", "Class 8", "Class 9", "Class 10"
+  subject: string; // e.g. "Mathematics", "Science", "English", "Computer Science", "Indian Heritage and Culture", "Economics"
+  chapterNo: number;
+  chapterName: string;
+  partLabel?: string; // e.g. "Part 1", "Part 2", or empty
+  pdfUrl: string;
+  pdfFileName: string;
+  storagePath?: string;
+  bucket?: string;
+  createdAt: string;
+  uploadedBy?: string;
+}
+
 export interface ChapterNote {
   id: string;
   chapterNo: number; // Only number!
   chapterName: string; // Chapter name
-  pdfUrl: string; // Base64 PDF content
+  partLabel?: string; // Optional part label, e.g. Part 1, Part 2
+  pdfUrl: string; // Base64 PDF content or URL
   pdfFileName: string; // Original PDF filename
   isCompleted?: boolean; // For tracking revision progress
   remark?: string; // Specific tutor remark on student's performance/difficulty
   createdAt: string;
+
+  // Student Access Control metadata
+  accessType?: "all" | "selected";
+  allowedStudentIds?: string[];
 
   // Supabase storage metadata
   storageProvider?: "supabase";

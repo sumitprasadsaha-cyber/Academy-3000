@@ -68,7 +68,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Student, ChapterNote } from "../types";
 import { ALL_ACADEMIC_MONTHS, MONTH_NAMES } from "../utils/monthHelper";
 import { groupAndSortChapterNotes } from "../utils/chapterNotesHelper";
-import { subscribeToAnnouncements, saveStudentDoc } from "../lib/firestoreService";
+import { subscribeToAnnouncements, saveStudentDoc, subscribeToClassNotes, getLocalClassNotes } from "../lib/firestoreService";
 import { uploadReportToStorage, downloadFileFromStorage, getBucketName, sanitizeStoragePath } from "../lib/storageService";
 import PdfViewer from "./PdfViewer";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
@@ -77,8 +77,10 @@ import { dataUrlToBlob } from "../utils/pdfUtils";
 import { supabase } from "../lib/supabaseClient";
 import ChapterProgressBottomSheet from "./ChapterProgressBottomSheet";
 import { getChapterProgressRecord, getStatusConfig } from "../utils/chapterProgressHelper";
-import { ChapterProgressData } from "../types";
+import { ChapterProgressData, ClassNote } from "../types";
 import { Sparkles } from "lucide-react";
+import { filterNotesForStudent, filterSubjectsForStudent } from "../utils/noteAccessHelper";
+import { filterClassNotesForStudent } from "../utils/classNoteHelper";
 
 interface StudentDashboardProps {
   student: Student;
@@ -1560,6 +1562,17 @@ export function StudentMyTab({
     }
   };
 
+  const [allClassNotes, setAllClassNotes] = useState<ClassNote[]>(() => getLocalClassNotes());
+
+  React.useEffect(() => {
+    const unsub = subscribeToClassNotes((notes) => {
+      setAllClassNotes(notes);
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
   const [noteSearchQuery, setNoteSearchQuery] = useState("");
   const [expandedStudentChapters, setExpandedStudentChapters] = useState<Record<number, boolean>>({});
 
@@ -1570,31 +1583,63 @@ export function StudentMyTab({
     }));
   };
 
+  // Filter notes from central repository matching student's class and enrolled subjects
+  const studentClassNotes = useMemo(() => {
+    return filterClassNotesForStudent(allClassNotes, localStudent);
+  }, [allClassNotes, localStudent]);
+
   const selectedNotes = useMemo(() => {
     if (!selectedSubject) return [] as ChapterNote[];
-    return ((localStudent.notes?.[selectedSubject] || []) as ChapterNote[]);
-  }, [selectedSubject, localStudent.notes]);
+
+    const fromClassNotes: ChapterNote[] = studentClassNotes
+      .filter((n) => n.subject.trim().toLowerCase() === selectedSubject.trim().toLowerCase())
+      .map((cn) => ({
+        id: cn.id,
+        chapterNo: cn.chapterNo,
+        chapterName: cn.chapterName,
+        partLabel: cn.partLabel,
+        pdfUrl: cn.pdfUrl,
+        pdfFileName: cn.pdfFileName,
+        storagePath: cn.storagePath,
+        bucket: cn.bucket,
+        createdAt: cn.createdAt,
+      }));
+
+    // Fallback: Also include any notes directly under student object if not already present
+    const legacyRaw = ((localStudent.notes?.[selectedSubject] || []) as ChapterNote[]);
+    const legacyFiltered = filterNotesForStudent(legacyRaw, localStudent.id, isAdmin);
+
+    const combined = [...fromClassNotes];
+    for (const leg of legacyFiltered) {
+      if (!combined.some((c) => c.id === leg.id || (leg.storagePath && c.storagePath === leg.storagePath))) {
+        combined.push(leg);
+      }
+    }
+
+    return combined;
+  }, [selectedSubject, studentClassNotes, localStudent.notes, localStudent.id, isAdmin]);
 
   const selectedChapterGroups = useMemo(() => {
     if (!selectedSubject) return [];
-    const raw = ((localStudent.notes?.[selectedSubject] || []) as ChapterNote[]).slice();
 
     const query = noteSearchQuery.trim().toLowerCase();
     const filtered = query
-      ? raw.filter((note) => {
+      ? selectedNotes.filter((note) => {
           const matchSubj = (selectedSubject || "").toLowerCase().includes(query);
           const matchChNo = `chapter ${note.chapterNo}`.toLowerCase().includes(query) || `${note.chapterNo}`.includes(query);
           const matchChName = (note.chapterName || "").toLowerCase().includes(query);
+          const matchPart = (note.partLabel || "").toLowerCase().includes(query);
           const matchFile = (note.pdfFileName || "").toLowerCase().includes(query);
-          return matchSubj || matchChNo || matchChName || matchFile;
+          return matchSubj || matchChNo || matchChName || matchPart || matchFile;
         })
-      : raw;
+      : selectedNotes;
 
     return groupAndSortChapterNotes(filtered);
-  }, [selectedSubject, localStudent.notes, noteSearchQuery]);
+  }, [selectedSubject, selectedNotes, noteSearchQuery]);
 
   const sortedSubjects = useMemo(() => {
-    return [...(localStudent.enrolledSubjects || [])].sort((a, b) => a.localeCompare(b));
+    const enrolled = localStudent.enrolledSubjects || [];
+    return [...enrolled].sort((a, b) => a.localeCompare(b));
   }, [localStudent.enrolledSubjects]);
 
   const handleSaveRemark = (note: ChapterNote) => {
@@ -1883,17 +1928,6 @@ export function StudentMyTab({
                               >
                                 <TrendingUp className="w-4 h-4" />
                               </button>
-
-                              {isAdmin && onDeleteNote && selectedSubject && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteNoteTarget({ subject: selectedSubject, noteId: note.id })}
-                                  className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all cursor-pointer shadow-xs active:scale-95"
-                                  title="Delete Note"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
                             </div>
                           </div>
 

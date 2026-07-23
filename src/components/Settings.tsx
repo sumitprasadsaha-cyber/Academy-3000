@@ -160,37 +160,37 @@ export default function Settings({
   }, [isAdmin]);
 
   const ensureDefaultAdminAccount = async () => {
-    const defaultEmail = "sumitprasadsaha@gmail.com";
+    const defaultAdminEmails = ["sumitprasadsaha@gmail.com", "sumitprasadsaha2@gmail.com"];
     const defaultPassword = "utyac48@jjE";
     const auth = await getFirebaseAuth();
     if (!auth) return;
 
     try {
-      const currentUser = auth.currentUser;
       const adminDoc = await getAllAdmins();
-      const existingAdmin = adminDoc.find((admin) => admin.email?.toLowerCase() === defaultEmail);
-      if (existingAdmin) {
-        return;
-      }
-
-      const { user } = await createUserWithEmailAndPassword(auth, defaultEmail, defaultPassword);
-      await saveUserDocument(user.uid, {
-        uid: user.uid,
-        name: "Sumit",
-        email: defaultEmail,
-        role: "Admin",
-        active: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastLogin: null
-      });
-      if (currentUser && currentUser.uid !== user.uid) {
-        await auth.signOut();
+      for (const email of defaultAdminEmails) {
+        const existingAdmin = adminDoc.find((admin) => admin.email?.toLowerCase() === email);
+        if (!existingAdmin) {
+          try {
+            const uid = await createNewUserAuth(email, defaultPassword);
+            await saveUserDocument(uid, {
+              uid,
+              name: "Sumit",
+              email,
+              role: "Admin",
+              active: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              lastLogin: null
+            });
+          } catch (e: any) {
+            if (e.code !== "auth/email-already-in-use") {
+              console.warn(`Failed ensuring default admin account for ${email}:`, e);
+            }
+          }
+        }
       }
     } catch (err: any) {
-      if (err.code !== "auth/email-already-in-use") {
-        console.warn("Failed ensuring default admin account:", err);
-      }
+      console.warn("Failed ensuring default admin account:", err);
     }
   };
 

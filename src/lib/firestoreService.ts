@@ -8,7 +8,7 @@ import {
   getDocs 
 } from "firebase/firestore";
 import { getFirebaseDb, OperationType, handleFirestoreError } from "./firebase";
-import { Student } from "../types";
+import { Student, ClassNote } from "../types";
 
 // Local storage keys for fallback/offline sandbox mode
 const STORAGE_KEY_STUDENTS = "tuition_students_data";
@@ -725,4 +725,123 @@ export async function deleteAnnouncementDoc(id: string): Promise<void> {
     handleFirestoreError(err, OperationType.DELETE, `announcements/${id}`);
   }
 }
+
+// ----------------------------------------------------
+// CLASS NOTES CENTRALIZED STORAGE API
+// ----------------------------------------------------
+const STORAGE_KEY_CLASS_NOTES = "tuition_class_notes";
+
+type ClassNotesListener = (notes: ClassNote[]) => void;
+const classNotesListeners = new Set<ClassNotesListener>();
+
+export function getLocalClassNotes(): ClassNote[] {
+  if (typeof window === "undefined") return [];
+  const cached = localStorage.getItem(STORAGE_KEY_CLASS_NOTES);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {
+      console.error("Failed to parse local class notes", e);
+    }
+  }
+  return [];
+}
+
+export function saveLocalClassNotes(notes: ClassNote[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY_CLASS_NOTES, JSON.stringify(notes));
+  classNotesListeners.forEach((listener) => listener(notes));
+  window.dispatchEvent(new Event("storage"));
+}
+
+export function subscribeToClassNotes(
+  onUpdate: (notes: ClassNote[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  let unsubscribeFirestore: (() => void) | null = null;
+  let active = true;
+
+  async function setup() {
+    const db = await getFirebaseDb();
+    if (!active) return;
+
+    if (!db) {
+      onUpdate(getLocalClassNotes());
+      const listener: ClassNotesListener = (updatedList) => {
+        if (active) onUpdate(updatedList);
+      };
+      classNotesListeners.add(listener);
+      unsubscribeFirestore = () => {
+        classNotesListeners.delete(listener);
+      };
+      return;
+    }
+
+    try {
+      const colRef = collection(db, "class_notes");
+      unsubscribeFirestore = onSnapshot(
+        colRef,
+        (snap) => {
+          if (!active) return;
+          const list: ClassNote[] = [];
+          snap.forEach((docSnap) => {
+            list.push(docSnap.data() as ClassNote);
+          });
+          saveLocalClassNotes(list);
+          onUpdate(list);
+        },
+        (err) => {
+          console.error("Firestore class_notes snapshot error", err);
+          if (onError) onError(err);
+          onUpdate(getLocalClassNotes());
+        }
+      );
+    } catch (err) {
+      console.warn("Failed to subscribe to class_notes, using local fallback", err);
+      onUpdate(getLocalClassNotes());
+    }
+  }
+
+  setup();
+
+  return () => {
+    active = false;
+    if (unsubscribeFirestore) {
+      unsubscribeFirestore();
+    }
+  };
+}
+
+export async function saveClassNoteDoc(note: ClassNote): Promise<void> {
+  const db = await getFirebaseDb();
+  const currentLocal = getLocalClassNotes();
+  const updatedLocal = [note, ...currentLocal.filter((n) => n.id !== note.id)];
+  saveLocalClassNotes(updatedLocal);
+
+  if (!db) return;
+
+  try {
+    const docRef = doc(db, "class_notes", note.id);
+    await setDoc(docRef, cleanObjectForFirestore(note), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `class_notes/${note.id}`);
+  }
+}
+
+export async function deleteClassNoteDoc(noteId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const currentLocal = getLocalClassNotes();
+  const updatedLocal = currentLocal.filter((n) => n.id !== noteId);
+  saveLocalClassNotes(updatedLocal);
+
+  if (!db) return;
+
+  try {
+    const docRef = doc(db, "class_notes", noteId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `class_notes/${noteId}`);
+  }
+}
+
 

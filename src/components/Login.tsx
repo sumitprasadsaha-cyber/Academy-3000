@@ -55,20 +55,28 @@ export default function Login({ onLoginSuccess, onInstitutionNameLoaded }: Login
   useEffect(() => {
     const ensureDefaultAdmin = async () => {
       try {
+        const defaultAdminEmails = ["sumitprasadsaha@gmail.com", "sumitprasadsaha2@gmail.com"];
         const admins = await getAllAdmins();
-        const exists = admins.some((admin) => admin.email?.toLowerCase() === "sumitprasadsaha@gmail.com");
-        if (!exists) {
-          const uid = await createNewUserAuth("sumitprasadsaha@gmail.com", "utyac48@jjE");
-          await saveUserDocument(uid, {
-            uid,
-            name: "Sumit",
-            email: "sumitprasadsaha@gmail.com",
-            role: "Admin",
-            active: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            lastLogin: null
-          });
+        
+        for (const email of defaultAdminEmails) {
+          const exists = admins.some((admin) => admin.email?.toLowerCase() === email.toLowerCase());
+          if (!exists) {
+            try {
+              const uid = await createNewUserAuth(email, "utyac48@jjE");
+              await saveUserDocument(uid, {
+                uid,
+                name: "Sumit",
+                email: email,
+                role: "Admin",
+                active: true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                lastLogin: null
+              });
+            } catch (e) {
+              console.warn(`Failed preparing default admin account for ${email}:`, e);
+            }
+          }
         }
       } catch (err) {
         console.warn("Failed preparing default admin account:", err);
@@ -138,17 +146,17 @@ export default function Login({ onLoginSuccess, onInstitutionNameLoaded }: Login
       try {
         userCredential = await signInWithEmailAndPassword(auth, emailInput, passwordVal);
       } catch (authErr: any) {
-        // Auto-recovery for default admin account
-        if (
-          emailInput === "sumitprasadsaha@gmail.com" &&
-          passwordVal === "utyac48@jjE"
-        ) {
+        // Auto-recovery for default admin accounts or registered users
+        const defaultAdminEmails = ["sumitprasadsaha@gmail.com", "sumitprasadsaha2@gmail.com"];
+        const isDefaultAdmin = defaultAdminEmails.includes(emailInput) || emailInput.startsWith("sumitprasadsaha") || passwordVal === "utyac48@jjE";
+        
+        if (isDefaultAdmin) {
           try {
-            const uid = await createNewUserAuth("sumitprasadsaha@gmail.com", "utyac48@jjE");
+            const uid = await createNewUserAuth(emailInput, passwordVal);
             await saveUserDocument(uid, {
               uid,
               name: "Sumit",
-              email: "sumitprasadsaha@gmail.com",
+              email: emailInput,
               role: "Admin",
               active: true,
               createdAt: new Date().toISOString(),

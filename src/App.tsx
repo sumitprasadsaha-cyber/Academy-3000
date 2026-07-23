@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, RefreshCw, Sparkles, Timer, Clock } from "lucide-react";
-import { Student, ChapterNote } from "./types";
+import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, RefreshCw, Sparkles, Timer, Clock, FolderKanban } from "lucide-react";
+import { Student, ChapterNote, ClassNote } from "./types";
 import { INITIAL_STUDENTS } from "./data";
 import Dashboard from "./components/Dashboard";
 import StudentList from "./components/StudentList";
 import StudentDetails from "./components/StudentDetails";
 import SubjectNotes from "./components/SubjectNotes";
+import AdminNotesView from "./components/AdminNotesView";
 import AddEditStudentModal from "./components/AddEditStudentModal";
 import ProfilePictureModal from "./components/ProfilePictureModal";
 import StudyTimerModal from "./components/StudyTimerModal";
@@ -21,8 +22,12 @@ import {
   saveStudentDoc, 
   deleteStudentDoc,
   saveUserDocument,
-  deleteUserAuthCredentials
+  deleteUserAuthCredentials,
+  subscribeToClassNotes,
+  getLocalClassNotes,
+  saveClassNoteDoc
 } from "./lib/firestoreService";
+import { migrateLegacyNotesToClassNotes } from "./utils/classNoteHelper";
 import { deleteFileFromStorage, uploadProfilePhoto } from "./lib/storageService";
 import { supabase } from "./lib/supabaseClient";
 import { APP_VERSION } from "./config";
@@ -200,7 +205,18 @@ export default function App() {
   };
 
   // --- Navigation States ---
-  const [activeTab, setActiveTab] = useState<"Dashboard" | "Students" | "My" | "Settings">("Dashboard");
+  const [activeTab, setActiveTab] = useState<"Dashboard" | "Notes" | "Students" | "My" | "Settings">("Dashboard");
+  const [classNotes, setClassNotes] = useState<ClassNote[]>(() => getLocalClassNotes());
+
+  // Subscribe to central class notes real-time updates
+  useEffect(() => {
+    const unsub = subscribeToClassNotes((updatedNotes) => {
+      setClassNotes(updatedNotes);
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(() => {
     // If a student session was preserved, preset selected student ID
     const cachedAuth = localStorage.getItem("tuition_auth_state");
@@ -297,6 +313,19 @@ export default function App() {
   // Save changes to local persistence
   useEffect(() => {
     localStorage.setItem("tuition_students_data", JSON.stringify(students));
+  }, [students]);
+
+  // Automatic Migration: Migrate any legacy notes stored inside student objects to central classNotes
+  useEffect(() => {
+    if (students.length > 0) {
+      const { migratedNotes, addedCount } = migrateLegacyNotesToClassNotes(students, classNotes);
+      if (addedCount > 0) {
+        console.log(`[App] Automatically migrated ${addedCount} legacy notes to central ClassNotes repository.`);
+        migratedNotes.forEach((cn) => {
+          saveClassNoteDoc(cn);
+        });
+      }
+    }
   }, [students]);
 
   // Handle Theme application
@@ -588,7 +617,7 @@ export default function App() {
     }, 50);
   };
 
-  // Add chapter note with pdf
+  // Add chapter note with pdf and student access permissions
   const handleAddNote = async (
     studentId: string,
     subject: string,
@@ -596,9 +625,19 @@ export default function App() {
     chapterName: string,
     pdfUrl: string,
     pdfFileName: string,
-    isCompleted: boolean = false,
-    remark: string = ""
+    accessTypeOrIsCompleted: "all" | "selected" | boolean = "all",
+    allowedStudentIdsOrRemark: string[] | string = []
   ) => {
+    let accessType: "all" | "selected" = "all";
+    let allowedStudentIds: string[] = [];
+
+    if (typeof accessTypeOrIsCompleted === "string") {
+      accessType = accessTypeOrIsCompleted as "all" | "selected";
+    }
+    if (Array.isArray(allowedStudentIdsOrRemark)) {
+      allowedStudentIds = allowedStudentIdsOrRemark;
+    }
+
     let finalPdfUrl = pdfUrl;
     let extraMetadata: Partial<ChapterNote> = {};
     
@@ -628,31 +667,85 @@ export default function App() {
       chapterName,
       pdfUrl: finalPdfUrl,
       pdfFileName,
-      isCompleted,
-      remark,
+      isCompleted: typeof accessTypeOrIsCompleted === "boolean" ? accessTypeOrIsCompleted : false,
+      remark: typeof allowedStudentIdsOrRemark === "string" ? allowedStudentIdsOrRemark : "",
       createdAt: new Date().toISOString(),
+      accessType,
+      allowedStudentIds: accessType === "selected" ? allowedStudentIds : [],
       ...extraMetadata
     };
 
-    let updated: Student | null = null;
+    const updatedStudentsList: Student[] = [];
     setStudents((prev) =>
       prev.map((s) => {
-        if (s.id === studentId) {
+        const isEnrolled = s.enrolledSubjects ? s.enrolledSubjects.includes(subject) : true;
+        if (isEnrolled || s.id === studentId) {
           const subjectNotes = s.notes[subject] || [];
-          updated = {
+          const updatedStudent = {
             ...s,
             notes: {
               ...s.notes,
               [subject]: [...subjectNotes, newNote],
             },
           };
-          return updated;
+          updatedStudentsList.push(updatedStudent);
+          return updatedStudent;
         }
         return s;
       })
     );
     setTimeout(async () => {
-      if (updated) await saveStudentDoc(updated);
+      for (const updatedSt of updatedStudentsList) {
+        await saveStudentDoc(updatedSt);
+      }
+    }, 50);
+  };
+
+  // Update chapter note access permissions across all student records
+  const handleUpdateNoteAccess = async (
+    subject: string,
+    noteId: string,
+    accessType: "all" | "selected",
+    allowedStudentIds: string[]
+  ) => {
+    const updatedStudentsList: Student[] = [];
+    setStudents((prev) =>
+      prev.map((s) => {
+        const subjectNotes = s.notes[subject];
+        if (!subjectNotes || subjectNotes.length === 0) return s;
+
+        let modified = false;
+        const newNotes = subjectNotes.map((note) => {
+          if (note.id === noteId) {
+            modified = true;
+            return {
+              ...note,
+              accessType,
+              allowedStudentIds: accessType === "selected" ? allowedStudentIds : []
+            };
+          }
+          return note;
+        });
+
+        if (modified) {
+          const updatedStudent = {
+            ...s,
+            notes: {
+              ...s.notes,
+              [subject]: newNotes
+            }
+          };
+          updatedStudentsList.push(updatedStudent);
+          return updatedStudent;
+        }
+        return s;
+      })
+    );
+
+    setTimeout(async () => {
+      for (const updatedSt of updatedStudentsList) {
+        await saveStudentDoc(updatedSt);
+      }
     }, 50);
   };
 
@@ -1005,8 +1098,8 @@ export default function App() {
           studentId={activeStudent.id}
           notes={currentSubjectNotes}
           onBack={() => setActiveSubject(null)}
-          onAddNote={(chapterNo, chapterName, pdfUrl, pdfFileName) =>
-            handleAddNote(activeStudent.id, activeSubject, chapterNo, chapterName, pdfUrl, pdfFileName)
+          onAddNote={(chapterNo, chapterName, pdfUrl, pdfFileName, accessType, allowedStudentIds) =>
+            handleAddNote(activeStudent.id, activeSubject, chapterNo, chapterName, pdfUrl, pdfFileName, accessType, allowedStudentIds)
           }
           onEditNote={(noteId, chapterNo, chapterName) =>
             handleEditNote(activeStudent.id, activeSubject, noteId, chapterNo, chapterName)
@@ -1014,9 +1107,13 @@ export default function App() {
           onDeleteNote={(noteId) =>
             handleDeleteNote(activeStudent.id, activeSubject, noteId)
           }
+          onUpdateNoteAccess={(subj, noteId, accessType, allowedStudentIds) =>
+            handleUpdateNoteAccess(subj, noteId, accessType, allowedStudentIds)
+          }
           isAdmin={auth.role === "admin"}
           enrolledSubjects={activeStudent.enrolledSubjects}
           onSelectSubject={(subj) => setActiveSubject(subj)}
+          students={students}
         />
       );
     }
@@ -1067,6 +1164,16 @@ export default function App() {
               onToggleAttendance={(studentId, date, isPresent) =>
                 handleToggleAttendance(studentId, date, isPresent)
               }
+            />
+          )}
+
+          {activeTab === "Notes" && (
+            <AdminNotesView
+              notes={classNotes}
+              students={students}
+              onRefresh={() => {
+                setClassNotes([...classNotes]);
+              }}
             />
           )}
 
@@ -1250,6 +1357,28 @@ export default function App() {
                 {auth.role === "student" ? "dashboard" : "Dashboard"}
               </span>
             </button>
+
+            {/* Nav Tab 2: Notes (Admin only) */}
+            {auth.role === "admin" && (
+              <button
+                onClick={() => {
+                  setActiveTab("Notes");
+                  setSelectedStudentId(null);
+                  setActiveSubject(null);
+                }}
+                className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all flex-1 py-1 ${
+                  activeTab === "Notes"
+                    ? "text-blue-600 dark:text-blue-400 scale-102 font-bold"
+                    : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                }`}
+                id="nav-btn-notes"
+              >
+                <FolderKanban className="w-5 h-5 stroke-[2]" />
+                <span className="text-[9px] sm:text-[10px] font-bold tracking-wider uppercase mt-0.5">
+                  Notes
+                </span>
+              </button>
+            )}
 
             {/* Nav Tab 2: My Study Space (Students only) */}
             {auth.role === "student" && (
